@@ -3,7 +3,6 @@ require 'nn'
 
 require 'LanguageModel'
 
-
 local cmd = torch.CmdLine()
 cmd:option('-checkpoint', 'cv/checkpoint_4000.t7')
 cmd:option('-length', 2000)
@@ -13,6 +12,10 @@ cmd:option('-temperature', 1)
 cmd:option('-gpu', 0)
 cmd:option('-gpu_backend', 'cuda')
 cmd:option('-verbose', 0)
+cmd:option('-stress_regex', '^\\*?(\\/\\*)+\\/?$')
+cmd:option('-line_syllables', 10)
+cmd:option('-lines_output', 'results/test_results.csv')
+cmd:option('-is_backward', false)
 local opt = cmd:parse(arg)
 
 
