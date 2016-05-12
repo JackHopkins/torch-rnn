@@ -16,6 +16,8 @@ cmd:option('-stress_regex', '^\\*?(\\/\\*)+\\/?$')
 cmd:option('-line_syllables', 10)
 cmd:option('-lines_output', 'results/test_results.csv')
 cmd:option('-is_backward', 0)
+cmd:option('-carmel', '/Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/carmel')
+cmd:option('-wfst', '/Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/wfst005.full.txt')
 local opt = cmd:parse(arg)
 
 
