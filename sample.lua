@@ -15,7 +15,7 @@ cmd:option('-verbose', 0)
 cmd:option('-stress_regex', '^\\*?(\\/\\*)+\\/?$')
 cmd:option('-line_syllables', 10)
 cmd:option('-lines_output', 'results/test_results.csv')
-cmd:option('-is_backward', false)
+cmd:option('-is_backward', 0)
 local opt = cmd:parse(arg)
 
 

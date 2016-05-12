@@ -21,22 +21,22 @@ cmd:option('-init_from', '')
 cmd:option('-reset_iterations', 1)
 cmd:option('-model_type', 'lstm')
 cmd:option('-wordvec_size', 64)
-cmd:option('-rnn_size', 256)
+cmd:option('-rnn_size', 50)
 cmd:option('-num_layers', 2)
 cmd:option('-dropout', 0)
 cmd:option('-batchnorm', 0)
 
 -- Optimization options
 cmd:option('-max_epochs', 20)
-cmd:option('-learning_rate', 2e-2)
+cmd:option('-learning_rate', 0.014)
 cmd:option('-grad_clip', 5)
 cmd:option('-lr_decay_every', 5)
-cmd:option('-lr_decay_factor', 0.5)
+cmd:option('-lr_decay_factor', 0.8)
 
 -- Output options
 cmd:option('-print_every', 1)
 cmd:option('-checkpoint_every', 1000)
-cmd:option('-checkpoint_name', 'cv/checkpoint')
+cmd:option('-checkpoint_name', 'lrcv/checkpoint')
 
 -- Benchmark options
 cmd:option('-speed_benchmark', 0)
@@ -227,7 +227,7 @@ for i = start_i + 1, num_iterations do
       memory_usage = memory_usage,
       i = i
     }
-    local filename = string.format('%s_%d.json', opt.checkpoint_name, i)
+    local filename = string.format('%s_%d-%s-lr%s.json', opt.checkpoint_name, i, val_loss_history[#val_loss_history], opt.learning_rate)
     -- Make sure the output directory exists before we try to write it
     paths.mkdir(paths.dirname(filename))
     utils.write_json(filename, checkpoint)

@@ -326,7 +326,7 @@ function LM:sample(kwargs)
   local temperature = utils.get_kwarg(kwargs, 'temperature', 1)
   local line_syllables = utils.get_kwarg(kwargs, 'line_syllables', 10)
   local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test.csv')
-
+  local backwards = utils.get_kwarg(kwargs, 'is_backward', 0)
 
   --Iambic stress regex
   local stress_pattern = re.compile(utils.get_kwarg(kwargs, 'stress_regex', '^\\*?(\\/\\*)+\\/?$'))
@@ -341,20 +341,29 @@ function LM:sample(kwargs)
   local scores
 
   local word_stack = Stack:Create()
+  local lines = {}
   local current_sample = start_text
 
-  local attempts = 0
+  local attempts, line_index, prefix = 0, 1, ""
  
   for t = 0, 10000 do
     
    
+    print("Prefix: "..prefix)
+    local new_word = prefix..self:sample_new_word(current_sample..prefix, 1000, verbose, temperature, scores, sample)
 
-    local new_word = self:sample_new_word(current_sample, 1000, verbose, temperature, scores, sample)
+    if verbose > 0 then
     print("Attempts : "..attempts.." - New word : \""..new_word.."\"")
+  end
+
     word_stack:push(new_word)
 
     local sanitised_line = sanitise(word_stack_to_string(word_stack))
    
+    if backwards == 1 then
+      sanitised_line = string.reverse(sanitised_line)
+    end
+
     local stresses = self:get_stresses(sanitised_line, stress_pattern)
    
     if count(stresses) == 0 then
@@ -363,7 +372,7 @@ function LM:sample(kwargs)
       if attempts > 5 then word_stack:pop(1) end
     else
       attempts = 0
-
+      prefix = ""
       local most_likely_stress, stress_prob = argmax(stresses)
 
       if #most_likely_stress > line_syllables then
@@ -373,23 +382,33 @@ function LM:sample(kwargs)
 
       elseif #most_likely_stress == line_syllables then
 
+        if verbose > 0 then
         print("WE'VE MADE A LINE - "..most_likely_stress.."="..stress_prob..";\n "..sanitised_line)
-        
+        end
+
         local output = assert(io.open(lines_output, 'a'))
        -- io.output(output)
-        output:write(string.gsub(sanitised_line, "\"", "")..","..stress_prob.."\n")
+        sanitised_line = string.gsub(sanitised_line, "\"", "")
+        output:write(sanitised_line..","..stress_prob.."\n")
         io.close(output)
+        lines[line_index] = sanitised_line
+        line_index = line_index+1
+        print(sanitised_line)
+
+        prefix = string.reverse(string.sub(sanitised_line, -2))
         --io.output()
-        current_sample = ""
-        self:resetStates()
+        --current_sample = ""
+       -- self:resetStates()
         word_stack:pop(word_stack:getn())
       end
-
     end
     current_sample = word_stack_to_string(word_stack)
 
+if verbose > 0 then
    print("\""..current_sample.."\"") 
    print(stresses)
+end
+
   end
    --print(sanitise(word_stack_to_string(word_stack)))
 
