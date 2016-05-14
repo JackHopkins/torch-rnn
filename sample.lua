@@ -14,10 +14,12 @@ cmd:option('-gpu_backend', 'cuda')
 cmd:option('-verbose', 0)
 cmd:option('-stress_regex', '^\\*?(\\/\\*)+\\/?$')
 cmd:option('-line_syllables', 10)
-cmd:option('-lines_output', 'results/test_results.csv')
+
 cmd:option('-is_backward', 0)
-cmd:option('-carmel', '/Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/carmel')
-cmd:option('-wfst', '/Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/wfst005.full.txt')
+cmd:option('-min_word_stress', 0.5)
+cmd:option('-lines_output', 'results/test_results2.csv')
+cmd:option('-carmel', '/Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx')
+cmd:option('-wfst', '/Users/jack/Documents/workspace/Poebot/torch-rnn/torch-rnn/wfst005.txt')
 local opt = cmd:parse(arg)
 
 

@@ -49,6 +49,7 @@ end
 function utils.write_json(path, obj)
   local s = cjson.encode(obj)
   local f = io.open(path, 'w')
+  print("Writing to: "..path)
   f:write(s)
   f:close()
 end

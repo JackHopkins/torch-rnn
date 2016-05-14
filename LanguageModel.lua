@@ -176,11 +176,24 @@ end
 
 function word_stack_to_string(word_stack)
   local words = ""
+  if word_stack:getn() == 0 then
+    return words
+  end
   for i,v in pairs(word_stack._et) do 
-    words = words..v
+    words = words..v.word
 
   end
   return words
+end
+
+
+function perplexity(word_stack)
+  local perplexity = 0
+  for i,v in pairs(word_stack._et) do 
+    perplexity = perplexity + v.perplexity
+
+  end
+  return perplexity/word_stack:getn()
 end
 
 function sanitise(cmd_sample)
@@ -217,8 +230,8 @@ function count(object)
   return count
 end
 
-function LM:get_stresses(input, stress_pattern) 
-local cmd = ("echo '$foo' | /Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/carmel -sliOEQbk 10 /Users/jack/Documents/workspace/Poebot/graehl/carmel/bin/macosx/wfst005.full.txt"):gsub('$foo', input:upper())
+function LM:get_stresses(input, stress_pattern, carmel, wfst) 
+local cmd = ("echo '$foo' | "..carmel.."/carmel -sliOEQbk 10 "..wfst):gsub('$foo', input:upper())
 local stress = os.capture(cmd)
 if string.match(stress, "0 0 0 0 0 0 0 0 0 0") then return {} end
 local current_patterns = {}
@@ -271,6 +284,7 @@ local sampled = torch.LongTensor(1, num)
 
 
   local word = ""
+  local perplexity = 0
   local _, next_char = nil, nil
    for t = first_t, num do
     -- If we haven't started sampling yet...
@@ -284,6 +298,8 @@ local sampled = torch.LongTensor(1, num)
        probs:div(torch.sum(probs))
        -- Select 1 from a multinomial distribution
        next_char = torch.multinomial(probs, 1):view(1, 1)
+       --print(next_char[1][1]=
+       perplexity = perplexity + 1/probs[next_char[1][1]]
     end
 
    -- sample_cache = sample_cache .. self:decode_string(next_char[1])
@@ -291,21 +307,34 @@ local sampled = torch.LongTensor(1, num)
 
    -- print(self:decode_string(next_char[1]))
     --print(sample)
-        word = word..self:decode_string(next_char[1])
+        --word = word..self:decode_string(next_char[1])
+       --  sampled[{{}, {t, t}}]:copy(next_char)
+      --scores = self:forward(next_char)
+
+     -- if delimiter
+      
          sampled[{{}, {t, t}}]:copy(next_char)
       scores = self:forward(next_char)
 
-     -- if delimiter
       if string.find(self:decode_string(next_char[1]), "[ ?.;:\n,%-!']") then
-        break;
-      end
 
+       -- local next_char = self:encode_string(" "):view(1, 1)
+
+      --  word = word.." "
+        -- sampled[{{}, {t, t}}]:copy(next_char)
+        --scores = self:forward(next_char)
+        word = word.." "
+        break;
+      else
+      word = word..self:decode_string(next_char[1]) 
+      end
+      
      
 
     end
     self:resetStates()
-
-    return word
+    print("Perplexity : "..perplexity/#word)
+    return { word = word, perplexity = perplexity }
 end
 --[[
 Sample from the language model. Note that this will reset the states of the
@@ -325,8 +354,11 @@ function LM:sample(kwargs)
   local sample = utils.get_kwarg(kwargs, 'sample', 1)
   local temperature = utils.get_kwarg(kwargs, 'temperature', 1)
   local line_syllables = utils.get_kwarg(kwargs, 'line_syllables', 10)
-  local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test.csv')
+  local carmel = utils.get_kwarg(kwargs, 'carmel', "")
+  local wfst = utils.get_kwarg(kwargs, 'wfst', "")
   local backwards = utils.get_kwarg(kwargs, 'is_backward', 0)
+  local word_stress_threshold = utils.get_kwarg(kwargs, 'min_word_stress', 0.5)
+local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..word_stress_threshold..'.csv')
 
   --Iambic stress regex
   local stress_pattern = re.compile(utils.get_kwarg(kwargs, 'stress_regex', '^\\*?(\\/\\*)+\\/?$'))
@@ -343,62 +375,119 @@ function LM:sample(kwargs)
   local word_stack = Stack:Create()
   local lines = {}
   local current_sample = start_text
-
+  --Retain string of previous lines to keep RNN primed
+  local legacy_sample = ""
   local attempts, line_index, prefix = 0, 1, ""
  
   for t = 0, 10000 do
     
-   
+   --if verbose > 0 then
     print("Prefix: "..prefix)
-    local new_word = prefix..self:sample_new_word(current_sample..prefix, 1000, verbose, temperature, scores, sample)
+    print("CS: "..current_sample)
+   --end
 
-    if verbose > 0 then
-    print("Attempts : "..attempts.." - New word : \""..new_word.."\"")
-  end
+    local truncated_legacy = string.sub(string.reverse(legacy_sample), -50)
+    
+    print("\""..truncated_legacy..prefix..current_sample.."\"")
+    local word_sample = self:sample_new_word(truncated_legacy..prefix..current_sample, 1000, verbose, temperature, scores, sample)
 
-    word_stack:push(new_word)
+    -- if this is the first ever word
+    if #prefix == 0 and #current_sample == 0 then
+      -- make sure it has more than 1 letter
+      while #word_sample.word <= 2 do
+        word_sample = self:sample_new_word(truncated_legacy, 1000, verbose, temperature, scores, sample)
+     -- attempts = attempts + 1
+      end
+      --print("1 : "..string.reverse(word_sample.word)) 
+    end
+   print("1 : "..prefix) 
+    local new_word = prefix..word_sample.word
+    local word = {word = new_word, perplexity = word_sample.perplexity}
+  --  if verbose > 0 then
+    
+ -- end
+
+    word_stack:push(word)
 
     local sanitised_line = sanitise(word_stack_to_string(word_stack))
-   
+    local line_perplexity = perplexity(word_stack)
+
     if backwards == 1 then
       sanitised_line = string.reverse(sanitised_line)
+      print("Attempts : "..attempts.." - New word : \""..string.reverse(new_word).."\"")
+    else
+      print("Attempts : "..attempts.." - New word : \""..new_word.."\"")
     end
 
-    local stresses = self:get_stresses(sanitised_line, stress_pattern)
+    local stresses = self:get_stresses(sanitised_line, stress_pattern, carmel, wfst)
    
+   -- If there are no valid pathways through the line
     if count(stresses) == 0 then
       word_stack:pop(1)
       attempts = attempts + 1
-      if attempts > 5 then word_stack:pop(1) end
+      if attempts > 5 then 
+       word_stack:pop(1) 
+        attempts=0
+      end
     else
+      -- There are valid pathways through the line
       attempts = 0
       prefix = ""
       local most_likely_stress, stress_prob = argmax(stresses)
 
-      if #most_likely_stress > line_syllables then
+      local acceptable_stress_threshold = 1
+
+      if word_stress_threshold > 0 then
+        for x = 1, word_stack:getn() do
+           acceptable_stress_threshold = acceptable_stress_threshold*word_stress_threshold
+        end
+      else
+        acceptable_stress_threshold = 0
+      end
+
+      if stress_prob < acceptable_stress_threshold then
+        -- Word is not 'iambic' (or other pattern) enough
+        if verbose > 0 then
+        print("Rejecting \""..new_word.."\": Does not conform strongly enough to correct stress pattern")
+        end
+
+       word_stack:pop(1)
+        attempts = attempts + 1
+        if attempts > 5 then 
+          word_stack:pop(1) 
+          attempts = 0
+        end
+
+      elseif #most_likely_stress > line_syllables then
         word_stack:pop(1)
         attempts = attempts + 1
-        if attempts > 5 then word_stack:pop(1) end
+        if attempts > 5 then 
+          word_stack:pop(1)
+          attempts = 0
+        end
 
-      elseif #most_likely_stress == line_syllables then
+      elseif math.abs(#most_likely_stress-line_syllables) <= 1 then
 
         if verbose > 0 then
-        print("WE'VE MADE A LINE - "..most_likely_stress.."="..stress_prob..";\n "..sanitised_line)
+        print("Line created - "..most_likely_stress.."="..stress_prob.."; Perplexity= "..line_perplexity.."\n "..sanitised_line)
         end
 
         local output = assert(io.open(lines_output, 'a'))
        -- io.output(output)
         sanitised_line = string.gsub(sanitised_line, "\"", "")
-        output:write(sanitised_line..","..stress_prob.."\n")
+        output:write(sanitised_line..","..stress_prob..","..line_perplexity.."\n")
+        legacy_sample = legacy_sample..sanitised_line
         io.close(output)
         lines[line_index] = sanitised_line
         line_index = line_index+1
         print(sanitised_line)
 
-        prefix = string.reverse(string.sub(sanitised_line, -2))
-        --io.output()
-        --current_sample = ""
-       -- self:resetStates()
+        prefix = word_stack._et[1].word
+        if #prefix > 2 then
+          prefix =string.sub(prefix, 0, 2)
+        end
+        print("Prefix: \""..prefix.."\"")
+
         word_stack:pop(word_stack:getn())
       end
     end
@@ -410,7 +499,6 @@ if verbose > 0 then
 end
 
   end
-   --print(sanitise(word_stack_to_string(word_stack)))
 
   return self:decode_string(sampled[1])
 

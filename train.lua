@@ -23,7 +23,7 @@ cmd:option('-model_type', 'lstm')
 cmd:option('-wordvec_size', 64)
 cmd:option('-rnn_size', 50)
 cmd:option('-num_layers', 2)
-cmd:option('-dropout', 0)
+cmd:option('-dropout', 0.5)
 cmd:option('-batchnorm', 0)
 
 -- Optimization options
