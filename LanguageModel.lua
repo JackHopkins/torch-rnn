@@ -13,6 +13,7 @@ local LM, parent = torch.class('nn.LanguageModel', 'nn.Module')
 
 
 function LM:__init(kwargs)
+  self.theme = utils.get_kwarg(kwargs, 'model_type')
   self.idx_to_token = utils.get_kwarg(kwargs, 'idx_to_token')
   self.token_to_idx = {}
   self.vocab_size = 0
@@ -129,6 +130,7 @@ function LM:encode_string(s)
   local encoded = torch.LongTensor(#s)
   for i = 1, #s do
     local token = s:sub(i, i)
+    
     local idx = self.token_to_idx[token]
     assert(idx ~= nil, 'Got invalid idx')
     encoded[i] = idx
@@ -198,7 +200,7 @@ end
 
 function sanitise(cmd_sample)
 
-            cmd_sample = string.gsub(cmd_sample, "%p", "")
+            cmd_sample = string.gsub(cmd_sample, "[%p@]", "")
             cmd_sample = string.gsub(cmd_sample, "[\n,]", " ")
             cmd_sample = string.gsub(cmd_sample, " ", "\" \"")
             cmd_sample = "\""..cmd_sample:upper().."\""
@@ -240,14 +242,10 @@ for i,v in pairs(split(stress, " ")) do
              -- print(string.match(v, "%d+"))    
               if string.match(v, "%d+") then     
                
-              if (stress_pattern:match(pattern)) then
-               
+               local sub_pattern = string.sub(stress_pattern, (#stress_pattern-#pattern)+1)
+              if sub_pattern == pattern then
                 current_patterns[pattern] = v
               end
-
-                if #pattern == 1 then 
-                  current_patterns[pattern] = v
-                end
 
                 pattern = ""
 
@@ -294,12 +292,24 @@ local sampled = torch.LongTensor(1, num)
     else
       --Otherwise find a tensor of probabilities, exponentiated
        local probs = torch.div(scores, temperature):double():exp():squeeze()
+
        -- Normalise...
        probs:div(torch.sum(probs))
+
        -- Select 1 from a multinomial distribution
        next_char = torch.multinomial(probs, 1):view(1, 1)
-       --print(next_char[1][1]=
+
+       --if char is not supported, guess again
+       if string.find(self:decode_string(next_char[1]), "[%=%/%\\%*()_%[%]%{%}?.\n;:%-!'\"\t]") then
+          goto continue
+       end
+       if string.find(self:decode_string(next_char[1]), " ") then
+          if #word == 0 then 
+            goto continue
+          end
+       end
        perplexity = perplexity + 1/probs[next_char[1][1]]
+
     end
 
    -- sample_cache = sample_cache .. self:decode_string(next_char[1])
@@ -316,25 +326,27 @@ local sampled = torch.LongTensor(1, num)
          sampled[{{}, {t, t}}]:copy(next_char)
       scores = self:forward(next_char)
 
-      if string.find(self:decode_string(next_char[1]), "[ ?.;:\n,%-!']") then
-
+      if string.find(self:decode_string(next_char[1]), "[ ?.;:,%-!']") then
+        print("c-\""..self:decode_string(next_char[1]).."\"")
        -- local next_char = self:encode_string(" "):view(1, 1)
 
       --  word = word.." "
         -- sampled[{{}, {t, t}}]:copy(next_char)
         --scores = self:forward(next_char)
         word = word.." "
+        --print("char : \""..self:decode_string(next_char[1]).."\"")
         break;
       else
       word = word..self:decode_string(next_char[1]) 
       end
       
      
-
+      ::continue::
     end
-    self:resetStates()
+   -- self:resetStates()
     print("Perplexity : "..perplexity/#word)
     return { word = word, perplexity = perplexity }
+
 end
 --[[
 Sample from the language model. Note that this will reset the states of the
@@ -348,7 +360,7 @@ Returns:
 - sampled: (1, max_length) array of integers, where the first part is init.
 --]]
 function LM:sample(kwargs)
-  local T = utils.get_kwarg(kwargs, 'length', 100)
+  local T = utils.get_kwarg(kwargs, 'length', 400)
   local start_text = utils.get_kwarg(kwargs, 'start_text', '')
   local verbose = utils.get_kwarg(kwargs, 'verbose', 0)
   local sample = utils.get_kwarg(kwargs, 'sample', 1)
@@ -358,14 +370,23 @@ function LM:sample(kwargs)
   local wfst = utils.get_kwarg(kwargs, 'wfst', "")
   local backwards = utils.get_kwarg(kwargs, 'is_backward', 0)
   local word_stress_threshold = utils.get_kwarg(kwargs, 'min_word_stress', 0.5)
-local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..word_stress_threshold..'.csv')
+  local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..word_stress_threshold..'.csv')..'-'..word_stress_threshold..'.csv'
+  local prefix = string.upper(utils.get_kwarg(kwargs, 'prefix', ''))
+  if backwards then
+    prefix = string.reverse(prefix)
+  end
 
-  --Iambic stress regex
-  local stress_pattern = re.compile(utils.get_kwarg(kwargs, 'stress_regex', '^\\*?(\\/\\*)+\\/?$'))
-
+  --Iambic stress pattern
+  local stress_pattern = ''
+  local foot = utils.get_kwarg(kwargs, 'stress_foot', '*/')
+  while #stress_pattern<line_syllables do
+   stress_pattern = stress_pattern..foot
+  end 
+  
   local sampled = torch.LongTensor(1, T)
   -- for storing working string 
   local sample_cache = ""
+
   self:resetStates()
   
   
@@ -377,9 +398,9 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
   local current_sample = start_text
   --Retain string of previous lines to keep RNN primed
   local legacy_sample = ""
-  local attempts, line_index, prefix = 0, 1, ""
+  local attempts, line_index = 0, 1
  
-  for t = 0, 10000 do
+  for t = 0, T do
     
    --if verbose > 0 then
     print("Prefix: "..prefix)
@@ -388,19 +409,21 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
 
     local truncated_legacy = string.sub(string.reverse(legacy_sample), -50)
     
-    print("\""..truncated_legacy..prefix..current_sample.."\"")
-    local word_sample = self:sample_new_word(truncated_legacy..prefix..current_sample, 1000, verbose, temperature, scores, sample)
+
+    preamble = string.upper(truncated_legacy..prefix..current_sample)
+    local word_sample = self:sample_new_word(preamble, 1000, verbose, temperature, scores, sample)
 
     -- if this is the first ever word
-    if #prefix == 0 and #current_sample == 0 then
+    if #current_sample == 0 then
       -- make sure it has more than 1 letter
       while #word_sample.word <= 2 do
-        word_sample = self:sample_new_word(truncated_legacy, 1000, verbose, temperature, scores, sample)
+    --    print("Word: "..word_sample.word)
+       word_sample = self:sample_new_word(string.upper(truncated_legacy), 1000, verbose, temperature, scores, sample)
      -- attempts = attempts + 1
       end
       --print("1 : "..string.reverse(word_sample.word)) 
-    end
-   print("1 : "..prefix) 
+   end
+    
     local new_word = prefix..word_sample.word
     local word = {word = new_word, perplexity = word_sample.perplexity}
   --  if verbose > 0 then
@@ -447,9 +470,9 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
 
       if stress_prob < acceptable_stress_threshold then
         -- Word is not 'iambic' (or other pattern) enough
-        if verbose > 0 then
+        --if verbose > 0 then
         print("Rejecting \""..new_word.."\": Does not conform strongly enough to correct stress pattern")
-        end
+        --end
 
        word_stack:pop(1)
         attempts = attempts + 1
@@ -458,7 +481,9 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
           attempts = 0
         end
 
-      elseif #most_likely_stress > line_syllables then
+      --if the most likely stress pattern is greater than our acceptable line length (with 1 syllable error), pop
+      elseif #most_likely_stress > line_syllables+1 then
+        print("Rejecting \""..new_word.."\": Line has too many syllables")
         word_stack:pop(1)
         attempts = attempts + 1
         if attempts > 5 then 
@@ -476,7 +501,7 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
        -- io.output(output)
         sanitised_line = string.gsub(sanitised_line, "\"", "")
         output:write(sanitised_line..","..stress_prob..","..line_perplexity.."\n")
-        legacy_sample = legacy_sample..sanitised_line
+        legacy_sample = sanitised_line:upper().."\n"..legacy_sample:upper()
         io.close(output)
         lines[line_index] = sanitised_line
         line_index = line_index+1
@@ -486,17 +511,21 @@ local lines_output = utils.get_kwarg(kwargs, 'lines_output', 'results/test-'..wo
         if #prefix > 2 then
           prefix =string.sub(prefix, 0, 2)
         end
-        print("Prefix: \""..prefix.."\"")
-
+       -- print("Legacy: \""..legacy_sample.."\""
         word_stack:pop(word_stack:getn())
       end
-    end
-    current_sample = word_stack_to_string(word_stack)
 
-if verbose > 0 then
+    current_sample = word_stack_to_string(word_stack)
+    
+
+    end
+    
+    
+
+    if verbose > 0 then
    print("\""..current_sample.."\"") 
    print(stresses)
-end
+    end
 
   end
 
